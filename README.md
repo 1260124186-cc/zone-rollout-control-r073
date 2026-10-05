@@ -168,11 +168,13 @@ curl -sS -X PATCH http://127.0.0.1:8090/v1/plans/<plan_id>/assessments \
 | `PUT` | `/v1/nodes` | 登记解析节点 |
 | `GET` | `/v1/nodes` | 按状态和区域分页查询节点 |
 | `PUT` | `/v1/plans` | 创建计划草稿 |
-| `GET` | `/v1/plans` | 按状态分页查询计划 |
+| `GET` | `/v1/plans` | 按状态和归档范围分页查询计划 |
 | `GET` | `/v1/plans/{id}` | 查询计划 |
 | `PATCH` | `/v1/plans/{id}/revisions` | 添加区域版本 |
 | `PATCH` | `/v1/plans/{id}/activate` | 激活计划 |
 | `PATCH` | `/v1/plans/{id}/complete` | 完成计划 |
+| `PATCH` | `/v1/plans/{id}/archive` | 归档已完成计划（重复归档幂等） |
+| `PATCH` | `/v1/plans/{id}/restore` | 恢复归档计划 |
 | `PATCH` | `/v1/plans/{id}/leases` | 给节点分配租约 |
 | `PATCH` | `/v1/leases/{id}/release` | 提前释放租约 |
 | `PATCH` | `/v1/leases/{id}/probes` | 登记探针并完成租约 |
@@ -182,6 +184,10 @@ curl -sS -X PATCH http://127.0.0.1:8090/v1/plans/<plan_id>/assessments \
 ## 状态及失败行为
 
 - 计划按 `draft -> active -> completed` 单向迁移，激活和完成需要匹配版本。
+- 只有 `completed` 计划可以归档；`draft` 或 `active` 计划归档会被拒绝。
+- 归档计划默认从 `GET /v1/plans` 隐藏；使用 `scope=archived` 只看归档计划、`scope=all` 查看全部、`scope=active`（默认）只看未归档计划。`scope` 可与 `state`、`limit`、`cursor` 组合使用。
+- 归档和恢复都需要匹配 `expected_version`，会提交新的计划版本；区域版本、租约、探针和判定引用全部保留。
+- 对已归档计划重复归档是幂等的，返回同一个聚合且不递增版本；对未归档计划执行恢复返回冲突。
 - 区域版本只在计划草稿状态可追加，序列号严格递增且内容不可变。
 - A、AAAA、CNAME 条目在写入前规范化并稳定排序，重复条目直接拒绝。
 - 节点按 `ready -> leased -> ready` 变化，隔离节点不会被选中。
@@ -216,6 +222,7 @@ go run ./cmd/workflowprobe plan-revision-lifecycle
 go run ./cmd/workflowprobe node-lease-allocation
 go run ./cmd/workflowprobe probe-ingestion
 go run ./cmd/workflowprobe consistency-assessment
+go run ./cmd/workflowprobe plan-archive
 ```
 
 探针不访问外部网络，也不依赖已有状态文件。

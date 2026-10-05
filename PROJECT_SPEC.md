@@ -21,13 +21,14 @@ Zone Rollout Control 是面向 DNS 运维人员的 Go HTTP 控制面。它把区
 - `id`：服务生成的稳定标识。
 - `zone`：区域名称，必须是小写 DNS 名称。
 - `state`：`draft`、`active` 或 `completed`。
+- `archived`：归档标记。归档只影响默认列表可见性，不改变生命周期状态。
 - `minimum_success_ratio`：成功节点占比下限，范围为 0 到 1。
 - `maximum_latency_ms`：允许的最大探针延迟。
 - `expected_nodes`：计划预期参与的节点数，范围为 1 到 500。
 - `version`：每次计划聚合变化后递增。
 - `latest_revision_id`：最近一次添加的区域版本。
 - `latest_assessment_id`：最近一次完成的一致性判定。
-- `created_at`、`activated_at`、`completed_at`：RFC3339 时间。
+- `created_at`、`activated_at`、`completed_at`、`archived_at`、`restored_at`：RFC3339 时间。
 
 ### ZoneRevision
 
@@ -95,6 +96,21 @@ draft --activate--> active --complete--> completed
 - 激活后不能继续添加区域版本。
 - 激活和完成需要匹配当前版本。
 
+### 归档与恢复
+
+归档是叠加在生命周期状态之上的可见性标记，与 `state` 正交：
+
+```text
+completed (visible) --archive--> completed (archived) --restore--> completed (visible)
+```
+
+- 只有 `completed` 计划可以归档；`draft` 或 `active` 计划归档返回 `invalid_state`。
+- 归档计划默认不出现在计划列表中，必须通过显式范围 `scope=archived` 或 `scope=all` 查询；`scope=active`（默认）只返回未归档计划。
+- 归档与恢复都校验 `expected_version`，提交新的计划版本，并保留区域版本、租约、探针和判定等全部历史引用。
+- 对已归档计划重复归档是幂等的：返回当前聚合，不递增版本、不写审计。
+- 对未归档计划执行恢复返回 `invalid_state`。
+- 状态过滤、分页游标与按 ID 的已完成读取在任何归档范围下都保持可用。
+
 ### 节点与租约生命周期
 
 ```text
@@ -149,9 +165,13 @@ ready --lease--> leased --report--> ready
 入口：
 
 - `PUT /v1/plans`
+- `GET /v1/plans`
+- `GET /v1/plans/{id}`
 - `PATCH /v1/plans/{id}/revisions`
 - `PATCH /v1/plans/{id}/activate`
 - `PATCH /v1/plans/{id}/complete`
+- `PATCH /v1/plans/{id}/archive`
+- `PATCH /v1/plans/{id}/restore`
 
 步骤：
 
@@ -160,9 +180,9 @@ ready --lease--> leased --report--> ready
 3. 存储层在锁内创建计划或版本，并原子替换状态快照。
 4. 返回带版本的新聚合。
 
-成功行为：计划按 `draft -> active -> completed` 迁移，区域版本在激活前可追加。
+成功行为：计划按 `draft -> active -> completed` 迁移，区域版本在激活前可追加；已完成计划可归档隐藏并显式恢复，历史引用全部保留。
 
-失败行为：重复序列号、非法名称、缺少版本、版本冲突或非法迁移不会修改状态。
+失败行为：重复序列号、非法名称、缺少版本、版本冲突或非法迁移不会修改状态；归档或恢复的版本不匹配会被拒绝，重复归档幂等返回原聚合。
 
 ### W2 节点领取租约
 
@@ -255,6 +275,8 @@ ready --lease--> leased --report--> ready
 - `PATCH /v1/plans/{id}/revisions`
 - `PATCH /v1/plans/{id}/activate`
 - `PATCH /v1/plans/{id}/complete`
+- `PATCH /v1/plans/{id}/archive`
+- `PATCH /v1/plans/{id}/restore`
 - `PATCH /v1/plans/{id}/leases`
 - `PATCH /v1/leases/{id}/release`
 - `PATCH /v1/leases/{id}/probes`
@@ -282,5 +304,6 @@ ready --lease--> leased --report--> ready
 2. 节点分配、租约唯一性、幂等重放和无可用节点冲突。
 3. 探针首写、同键重放、同键异载荷冲突和释放冲突。
 4. 一致性通过、审核触发、最新结果查询和幂等重放。
+5. 完成计划归档幂等、活动/草稿拒绝归档、按范围查询、恢复版本提交和历史引用保留。
 
 每条探针使用独立临时目录，不访问外部网络，结束后关闭服务。

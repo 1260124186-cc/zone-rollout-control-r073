@@ -40,6 +40,42 @@ func CompletePlan(plan *RolloutPlan, now time.Time) error {
 	return nil
 }
 
+// ArchivePlan hides a finished plan from the default listing. Only a
+// completed plan can be archived; callers must short-circuit before invoking
+// it when the plan is already archived to keep repeated archiving idempotent.
+func ArchivePlan(plan *RolloutPlan, now time.Time) error {
+	if plan.State != PlanCompleted {
+		return InvalidState("plan can be archived only after completion", map[string]any{
+			"plan_id": plan.ID,
+			"state":   plan.State,
+		})
+	}
+	archivedAt := now.UTC()
+	plan.Archived = true
+	plan.ArchivedAt = &archivedAt
+	plan.RestoredAt = nil
+	plan.Version++
+	return nil
+}
+
+// RestorePlan reverses an archive and brings a completed plan back into the
+// default listing. It returns an invalid-state error when the plan was never
+// archived, so restoring a visible plan is a reported failure rather than a
+// no-op.
+func RestorePlan(plan *RolloutPlan, now time.Time) error {
+	if !plan.Archived {
+		return InvalidState("plan can be restored only when archived", map[string]any{
+			"plan_id": plan.ID,
+		})
+	}
+	restoredAt := now.UTC()
+	plan.Archived = false
+	plan.ArchivedAt = nil
+	plan.RestoredAt = &restoredAt
+	plan.Version++
+	return nil
+}
+
 func LeaseFingerprint(planID string, input LeaseInput) string {
 	payload := fmt.Sprintf(
 		"%s|%s|%s|%d|%d",

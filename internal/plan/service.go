@@ -167,6 +167,79 @@ func (s *Service) Complete(
 	return plan, err
 }
 
+func (s *Service) Archive(
+	ctx context.Context,
+	planID string,
+	expectedVersion uint64,
+) (domain.RolloutPlan, error) {
+	var plan domain.RolloutPlan
+	err := s.store.Write(ctx, func(state *domain.State) error {
+		current, ok := state.Plans[planID]
+		if !ok {
+			return domain.NotFound("plan", planID)
+		}
+		// Repeated archiving is idempotent: a client replaying the request
+		// gets the same aggregate back, with no new version or audit event.
+		if current.Archived {
+			plan = current
+			return nil
+		}
+		if current.State != domain.PlanCompleted {
+			return domain.InvalidState("plan can be archived only after completion", map[string]any{
+				"plan_id": planID,
+				"state":   current.State,
+			})
+		}
+		if current.Version != expectedVersion {
+			return versionConflict(planID, expectedVersion, current.Version)
+		}
+		now := s.clock.Now().UTC()
+		if err := domain.ArchivePlan(&current, now); err != nil {
+			return err
+		}
+		state.Plans[planID] = current
+		store.AddAudit(state, s.ids, "plan", planID, "archived", now, map[string]any{
+			"version": current.Version,
+		})
+		plan = current
+		return nil
+	})
+	return plan, err
+}
+
+func (s *Service) Restore(
+	ctx context.Context,
+	planID string,
+	expectedVersion uint64,
+) (domain.RolloutPlan, error) {
+	var plan domain.RolloutPlan
+	err := s.store.Write(ctx, func(state *domain.State) error {
+		current, ok := state.Plans[planID]
+		if !ok {
+			return domain.NotFound("plan", planID)
+		}
+		if !current.Archived {
+			return domain.InvalidState("plan can be restored only when archived", map[string]any{
+				"plan_id": planID,
+			})
+		}
+		if current.Version != expectedVersion {
+			return versionConflict(planID, expectedVersion, current.Version)
+		}
+		now := s.clock.Now().UTC()
+		if err := domain.RestorePlan(&current, now); err != nil {
+			return err
+		}
+		state.Plans[planID] = current
+		store.AddAudit(state, s.ids, "plan", planID, "restored", now, map[string]any{
+			"version": current.Version,
+		})
+		plan = current
+		return nil
+	})
+	return plan, err
+}
+
 func (s *Service) Get(ctx context.Context, planID string) (domain.RolloutPlan, error) {
 	var plan domain.RolloutPlan
 	err := s.store.Read(ctx, func(state *domain.State) error {
@@ -208,12 +281,21 @@ func (s *Service) LatestRevision(
 func (s *Service) List(
 	ctx context.Context,
 	stateFilter domain.PlanState,
+	scope domain.PlanArchiveScope,
 	limit int,
 	cursor string,
 ) (domain.PlanPage, error) {
 	if limit < 1 || limit > 100 {
 		return domain.PlanPage{}, domain.Validation("limit must be between 1 and 100", map[string]any{
 			"limit": limit,
+		})
+	}
+	if scope == "" {
+		scope = domain.ScopeActive
+	}
+	if scope != domain.ScopeActive && scope != domain.ScopeArchived && scope != domain.ScopeAll {
+		return domain.PlanPage{}, domain.Validation("plan archive scope is not supported", map[string]any{
+			"scope": scope,
 		})
 	}
 	after, err := platform.DecodeCursor(cursor)
@@ -226,6 +308,16 @@ func (s *Service) List(
 		for _, plan := range state.Plans {
 			if stateFilter != "" && plan.State != stateFilter {
 				continue
+			}
+			switch scope {
+			case domain.ScopeActive:
+				if plan.Archived {
+					continue
+				}
+			case domain.ScopeArchived:
+				if !plan.Archived {
+					continue
+				}
 			}
 			if after != "" && plan.ID <= after {
 				continue

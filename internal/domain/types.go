@@ -10,6 +10,19 @@ const (
 	PlanCompleted PlanState = "completed"
 )
 
+// PlanArchiveScope selects which archive status a plan list returns.
+type PlanArchiveScope string
+
+const (
+	// ScopeActive returns plans that have not been archived and is the
+	// default scope.
+	ScopeActive PlanArchiveScope = "active"
+	// ScopeArchived returns only archived plans.
+	ScopeArchived PlanArchiveScope = "archived"
+	// ScopeAll returns both archived and non-archived plans.
+	ScopeAll PlanArchiveScope = "all"
+)
+
 type NodeState string
 
 const (
@@ -62,6 +75,7 @@ type RolloutPlan struct {
 	ID                  string     `json:"id"`
 	Zone                string     `json:"zone"`
 	State               PlanState  `json:"state"`
+	Archived            bool       `json:"archived"`
 	MinimumSuccessRatio float64    `json:"minimum_success_ratio"`
 	MaximumLatencyMS    int        `json:"maximum_latency_ms"`
 	ExpectedNodes       int        `json:"expected_nodes"`
@@ -71,6 +85,8 @@ type RolloutPlan struct {
 	CreatedAt           time.Time  `json:"created_at"`
 	ActivatedAt         *time.Time `json:"activated_at,omitempty"`
 	CompletedAt         *time.Time `json:"completed_at,omitempty"`
+	ArchivedAt          *time.Time `json:"archived_at,omitempty"`
+	RestoredAt          *time.Time `json:"restored_at,omitempty"`
 }
 
 type ResolverNode struct {
