@@ -135,6 +135,20 @@ curl -sS -X PATCH http://127.0.0.1:8090/v1/plans/<plan_id>/assessments \
   -d '{"request_key": "assess-request-0001"}'
 ```
 
+归档已完成的计划（可选携带 `expected_version`；重复调用幂等）：
+
+```bash
+curl -sS -X PATCH http://127.0.0.1:8090/v1/plans/<plan_id>/archive \
+  -H 'Content-Type: application/json' \
+  -d '{"expected_version": 5}'
+
+# 默认列表不返回归档计划，显式指定范围查询：
+curl -sS 'http://127.0.0.1:8090/v1/plans?scope=archived&state=completed&limit=50'
+
+# 恢复归档计划：
+curl -sS -X PATCH http://127.0.0.1:8090/v1/plans/<plan_id>/restore
+```
+
 ## API 概览
 
 成功响应：
@@ -168,11 +182,13 @@ curl -sS -X PATCH http://127.0.0.1:8090/v1/plans/<plan_id>/assessments \
 | `PUT` | `/v1/nodes` | 登记解析节点 |
 | `GET` | `/v1/nodes` | 按状态和区域分页查询节点 |
 | `PUT` | `/v1/plans` | 创建计划草稿 |
-| `GET` | `/v1/plans` | 按状态分页查询计划 |
+| `GET` | `/v1/plans` | 按状态和归档范围分页查询计划 |
 | `GET` | `/v1/plans/{id}` | 查询计划 |
 | `PATCH` | `/v1/plans/{id}/revisions` | 添加区域版本 |
 | `PATCH` | `/v1/plans/{id}/activate` | 激活计划 |
 | `PATCH` | `/v1/plans/{id}/complete` | 完成计划 |
+| `PATCH` | `/v1/plans/{id}/archive` | 归档已完成计划（幂等） |
+| `PATCH` | `/v1/plans/{id}/restore` | 恢复归档计划（幂等） |
 | `PATCH` | `/v1/plans/{id}/leases` | 给节点分配租约 |
 | `PATCH` | `/v1/leases/{id}/release` | 提前释放租约 |
 | `PATCH` | `/v1/leases/{id}/probes` | 登记探针并完成租约 |
@@ -182,6 +198,9 @@ curl -sS -X PATCH http://127.0.0.1:8090/v1/plans/<plan_id>/assessments \
 ## 状态及失败行为
 
 - 计划按 `draft -> active -> completed` 单向迁移，激活和完成需要匹配版本。
+- 只有 `completed` 计划可以归档；归档是独立标志，不改变生命周期状态，归档/恢复在实际迁移时递增版本并写审计，重复调用幂等（不递增版本）。
+- 归档只隐藏默认列表入口，不删除任何区域版本、租约、探针或判定，计划详情和 `assessments/latest` 对归档计划照常可读。
+- 计划列表支持 `scope=current`（默认，仅未归档）、`archived`、`all`，可与 `state` 过滤和 `cursor` 分页组合使用。
 - 区域版本只在计划草稿状态可追加，序列号严格递增且内容不可变。
 - A、AAAA、CNAME 条目在写入前规范化并稳定排序，重复条目直接拒绝。
 - 节点按 `ready -> leased -> ready` 变化，隔离节点不会被选中。
@@ -213,6 +232,7 @@ curl -sS -X PATCH http://127.0.0.1:8090/v1/plans/<plan_id>/assessments \
 
 ```bash
 go run ./cmd/workflowprobe plan-revision-lifecycle
+go run ./cmd/workflowprobe plan-archive-lifecycle
 go run ./cmd/workflowprobe node-lease-allocation
 go run ./cmd/workflowprobe probe-ingestion
 go run ./cmd/workflowprobe consistency-assessment

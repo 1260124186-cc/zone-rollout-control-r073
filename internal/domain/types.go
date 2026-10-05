@@ -10,6 +10,14 @@ const (
 	PlanCompleted PlanState = "completed"
 )
 
+type PlanArchiveScope string
+
+const (
+	PlanScopeCurrent  PlanArchiveScope = "current"
+	PlanScopeArchived PlanArchiveScope = "archived"
+	PlanScopeAll      PlanArchiveScope = "all"
+)
+
 type NodeState string
 
 const (
@@ -71,6 +79,8 @@ type RolloutPlan struct {
 	CreatedAt           time.Time  `json:"created_at"`
 	ActivatedAt         *time.Time `json:"activated_at,omitempty"`
 	CompletedAt         *time.Time `json:"completed_at,omitempty"`
+	Archived            bool       `json:"archived"`
+	ArchivedAt          *time.Time `json:"archived_at,omitempty"`
 }
 
 type ResolverNode struct {

@@ -13,6 +13,10 @@
       "command": "go run ./cmd/workflowprobe plan-revision-lifecycle"
     },
     {
+      "workflow_id": "plan-archive-lifecycle",
+      "command": "go run ./cmd/workflowprobe plan-archive-lifecycle"
+    },
+    {
       "workflow_id": "node-lease-allocation",
       "command": "go run ./cmd/workflowprobe node-lease-allocation"
     },

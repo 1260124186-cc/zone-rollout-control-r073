@@ -40,6 +40,36 @@ func CompletePlan(plan *RolloutPlan, now time.Time) error {
 	return nil
 }
 
+// ArchivePlan marks a completed plan as archived. It is idempotent at the
+// domain level: a plan that is already archived is returned unchanged.
+func ArchivePlan(plan *RolloutPlan, now time.Time) error {
+	if plan.Archived {
+		return nil
+	}
+	if plan.State != PlanCompleted {
+		return InvalidState("only completed plans can be archived", map[string]any{
+			"plan_id": plan.ID,
+			"state":   plan.State,
+		})
+	}
+	plan.Archived = true
+	plan.ArchivedAt = timePointer(now.UTC())
+	plan.Version++
+	return nil
+}
+
+// RestorePlan unarchives a plan and is idempotent: a plan that is not
+// archived is returned unchanged.
+func RestorePlan(plan *RolloutPlan) error {
+	if !plan.Archived {
+		return nil
+	}
+	plan.Archived = false
+	plan.ArchivedAt = nil
+	plan.Version++
+	return nil
+}
+
 func LeaseFingerprint(planID string, input LeaseInput) string {
 	payload := fmt.Sprintf(
 		"%s|%s|%s|%d|%d",

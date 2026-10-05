@@ -41,7 +41,17 @@ func (s *Server) listPlans(w http.ResponseWriter, r *http.Request) {
 		sendError(w, r, domain.Validation("plan state is not supported", map[string]any{"state": state}))
 		return
 	}
-	page, err := s.plans.List(r.Context(), state, limit, r.URL.Query().Get("cursor"))
+	scope := domain.PlanArchiveScope(strings.TrimSpace(r.URL.Query().Get("scope")))
+	if scope == "" {
+		scope = domain.PlanScopeCurrent
+	}
+	if scope != domain.PlanScopeCurrent &&
+		scope != domain.PlanScopeArchived &&
+		scope != domain.PlanScopeAll {
+		sendError(w, r, domain.Validation("plan scope is not supported", map[string]any{"scope": scope}))
+		return
+	}
+	page, err := s.plans.List(r.Context(), state, scope, limit, r.URL.Query().Get("cursor"))
 	if err != nil {
 		sendError(w, r, err)
 		return
@@ -101,6 +111,34 @@ func (s *Server) completePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := s.plans.Complete(r.Context(), r.PathValue("id"), input.ExpectedVersion)
+	if err != nil {
+		sendError(w, r, err)
+		return
+	}
+	sendData(w, r, http.StatusOK, result)
+}
+
+func (s *Server) archivePlan(w http.ResponseWriter, r *http.Request) {
+	var input versionInput
+	if err := decodeOptional(w, r, &input); err != nil {
+		sendError(w, r, err)
+		return
+	}
+	result, err := s.plans.Archive(r.Context(), r.PathValue("id"), input.ExpectedVersion)
+	if err != nil {
+		sendError(w, r, err)
+		return
+	}
+	sendData(w, r, http.StatusOK, result)
+}
+
+func (s *Server) restorePlan(w http.ResponseWriter, r *http.Request) {
+	var input versionInput
+	if err := decodeOptional(w, r, &input); err != nil {
+		sendError(w, r, err)
+		return
+	}
+	result, err := s.plans.Restore(r.Context(), r.PathValue("id"), input.ExpectedVersion)
 	if err != nil {
 		sendError(w, r, err)
 		return

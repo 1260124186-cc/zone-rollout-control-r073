@@ -93,6 +93,26 @@
       ]
     },
     {
+      "id": "plan-archive-lifecycle",
+      "name": "Plan archive and restore",
+      "entry": "PATCH /v1/plans/{id}/archive -> GET /v1/plans?scope=... -> PATCH /v1/plans/{id}/restore",
+      "steps": [
+        "reject archiving while a plan is draft or active",
+        "archive only a completed plan and commit a new plan version",
+        "hide archived plans from the default list and query them by explicit scope",
+        "restore the plan with a committed version while preserving all references"
+      ],
+      "success": "a completed plan is archived, hidden by default, retrievable via scope=archived/all, and restored; revisions, leases, probes, assessments, and plan references remain intact",
+      "failure": "non-completed plans and stale versions fail without state changes; invalid scope values are rejected",
+      "verification": "workflowprobe plan-archive-lifecycle archives, idempotently replays, scopes and pages the list, reads archived detail and latest assessment, then restores",
+      "module_ids": [
+        "httpapi",
+        "plan",
+        "domain",
+        "storage"
+      ]
+    },
+    {
       "id": "node-lease-allocation",
       "name": "Node lease allocation",
       "entry": "PATCH /v1/plans/{id}/leases",
